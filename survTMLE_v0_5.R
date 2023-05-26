@@ -2,8 +2,8 @@
 #                                                          #
 #  Survival LTMLE with a time-fixed exposure and           #
 #  time-varying censoring                                  #
-#  V0.4                                                    #
-#  date: 2023-04-17                                        #
+#  V0.5                                                    #
+#  date: 2023-05-26                                        #
 #  Maintainer: Denis Talbot                                #
 #              denis.talbot@fmed.ulaval.ca                 #
 #                                                          #
@@ -46,7 +46,11 @@ require(SuperLearner);
 # Lvar:          Either a list of character vectors indicating the names of the time-varying
 #                L covariates measured at each time-point or a list of numeric vectors of the
 #                indices of the L covariates. The sets of variables (the elements of the list)
-#                must be temporally ordered in Lvar.
+#                must be temporally ordered in Lvar. For example, if there are two time points
+#                and (L11, L12) are the covariates at time 1 and (L21, L22, L23) are the covariates
+#                at time 3, then Lvar = list(c(L11, L12), c(L21, L22, L23)). If there are only
+#                baseline covariates, it is possible to repeat the same covariates at all times
+#                with lookback = 1.
 # L0var:         A character vector of time-fixed L variables measured at baseline or
 #                a numeric vector of the indices of the time-fixed L variables in dat (optional).
 # lookback:      A numeric value indicating how far back in time should time-varying covariates
@@ -93,7 +97,7 @@ require(SuperLearner);
 #                as in dat) and "time", which is coded as time = 1, ..., K. 
 #                If the name of Avar in dat is "trt" some examples are ~ trt + time,
 #                ~ trt + as.factor(time) or trt + time + trt*time.
-# Print:       TRUE or FALSE, whether the function should print the main results (default = TRUE)
+# Print:         TRUE or FALSE, whether the function should print the main results (default = TRUE)
 
 
 
@@ -119,6 +123,10 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
                      Y.SL.library = SL.library, C.SL.library = SL.library,
                      A.SL.library = SL.library, gbound = 0.025, V = 5,
                      MSM.form = NULL, Print = TRUE){
+
+  ### Sample size (n) and number of time points (K)
+  n = nrow(dat);
+  K = length(Yvar); 
 
   #### Error checks
   ## Verifications for dat
@@ -149,6 +157,7 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
      max(dat[,Cvar] %% 1, na.rm = TRUE) > 0) stop("Cvar is not coded 0/1"); 
   if(length(Cvar) != length(Yvar)) stop("Yvar and Cvar should have the same length");
 
+
   ## Verifications for Avar
   if(!is.numeric(Avar) & !is.character(Avar)) stop("Avar must a numeric value or a character");
   if(length(Avar) > 1) stop("Avar must a numeric value or a character of length 1");
@@ -173,6 +182,7 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
 
   ## Verifications for Lvar  
   if(!is.list(Lvar)) stop("Lvar must be a list");
+  if(length(Lvar) != length(Yvar)) stop("Lvar and Yvar must have the same length");
   for(i in 1:length(Lvar)){
     if(!is.character(Lvar[[i]]) & !is.numeric(Lvar[[i]])) stop("Lvar must either be a list of character vectors or a list of numeric vectors");
     if(is.numeric(Lvar[[i]])){
@@ -309,11 +319,6 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
 
   ### Compute lower and upper bounds for g estimates
   gbounds = c(min(gbound, 1 - gbound), max(gbound, 1 - gbound)); # Bounds for g estimate
-
-
-  ### Sample size (n) and number of time points (K)
-  n = nrow(dat);
-  K = length(Yvar); 
 
 
   #### Modeling the exposure
@@ -770,9 +775,3 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
     invisible(list(St = results.St));
   }
 } # End of function
-
-
-
-
-
-

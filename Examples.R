@@ -5,6 +5,7 @@ source("...\survTMLE_v0_4.R");
 
 
 ######## Example 1 - Single baseline binary covariate 
+# Example from the paper
 
 #### Function to generate data
 
@@ -151,6 +152,8 @@ results;
 
 
 ######## Example 2 - Single baseline binary covariate + single time-varying binary covariate
+# This example is similar to Figure 1 in the paper,
+# where L1 in Figure 1 would correspond to L and L1 in the code
 
 generateData2 <- function(n, ntime = 10){
   expit <- plogis;

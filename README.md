@@ -5,6 +5,6 @@ This repository contains supplementary material for the article "Guidelines and 
 
 The files included are as follows:
 
-- The survTMLE_v*.R file contains an R function implementing targeted maximum likelihood estimation for estimating the effect of a single exposure on a time-to-event outcome as counterfactual survival curves and a working marginal structural model.  
+- The survTMLE_v*.R file contains an R function implementing targeted maximum likelihood estimation for estimating the effect of a single exposure on a time-to-event outcome as counterfactual survival curves, average treatment effect at different time points, and a working marginal structural model.  
 - The Examples.R file contains a few examples of usage of the survTMLE function based on simulated data.
 - The TutorialBoxes.R file contains the complete R code for a "handmade" implementation of TMLE, as presented in the boxes of our associated tutorial. 

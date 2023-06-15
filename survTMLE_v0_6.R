@@ -2,8 +2,8 @@
 #                                                          #
 #  Survival LTMLE with a time-fixed exposure and           #
 #  time-varying censoring                                  #
-#  V0.5                                                    #
-#  date: 2023-05-26                                        #
+#  V0.6                                                    #
+#  date: 2023-06-14                                        #
 #  Maintainer: Denis Talbot                                #
 #              denis.talbot@fmed.ulaval.ca                 #
 #                                                          #
@@ -697,7 +697,31 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
     }
   }
   SE.St = rbind(0, SE.St);
-  
+
+  nlevel = nlevels(as.factor(dat[, Avar]));
+  ATE = SE.ATE = LL.ATE = UL.ATE =
+    matrix(NA, nrow = K + 1, ncol = nlevel*(nlevel-1)/2);
+  column = 1;
+  for(i in 1:(nlevel-1)){
+    for(j in (i+1):nlevel){
+      colnames(ATE)[column] = paste0(levels(as.factor(dat[,Avar]))[i],"-",levels(as.factor(dat[,Avar]))[j]);
+      column = column + 1;
+    }
+  }
+
+  for(r in 1:(K+1)){
+    column = 1;
+    for(i in 1:(nlevel-1)){
+      for(j in (i+1):nlevel){
+        ATE[r, column] = St[r, i] - St[r, j];
+        if(r!=1) SE.ATE[r, column] = sqrt(var(ICt[, i, r-1] - ICt[, j, r-1])/n);
+        column = column + 1;
+      }
+    }
+  }
+
+  LL.ATE = ATE - 1.96*SE.ATE;
+  UL.ATE = ATE + 1.96*SE.ATE;
 
 
   #### Modeling the hazard (MSM)
@@ -770,8 +794,10 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
     }
   }
   if(!is.null(MSM.form)){
-    invisible(list(St = results.St, MSM = results.lambda, vcov = Var.lambda));
+    invisible(list(St = results.St, MSM = results.lambda, vcov = Var.lambda,
+                   ATE = ATE, SE.ATE = SE.ATE, LL.ATE = LL.ATE, UL.ATE = UL.ATE));
   }else{
-    invisible(list(St = results.St));
+    invisible(list(St = results.St,
+                   ATE = ATE, SE.ATE = SE.ATE, LL.ATE = LL.ATE, UL.ATE = UL.ATE));
   }
 } # End of function

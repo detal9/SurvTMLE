@@ -182,8 +182,14 @@ IC1_1 <- d1_1 + S1_1.star - Q1_1.star;
 IC1_0 <- d1_0 + S1_0.star - Q1_0.star;
 VarS1_1 <- var(IC1_1)/n;
 VarS1_0 <- var(IC1_0)/n;
+VarATE1 <- var(IC1_1 - IC1_0)/n;
+
+## Estimates and 95%CI
 S1_1.star + c(-1.96, 1.96)*sqrt(VarS1_1);
 S1_0.star + c(-1.96, 1.96)*sqrt(VarS1_0);
+ATE1 = S1_1.star - S1_0.star;
+c(ATE1, ATE1 - 1.96*sqrt(VarATE1), ATE1 + 1.96*sqrt(VarATE1));
+
 
 
 ###### Estimating $S^a(2)$
@@ -292,11 +298,11 @@ IC2_1 <- d2_1_2 + d2_1_1 + S2_1.star - Q2_1.star;
 IC2_0 <- d2_0_2 + d2_0_1 + S2_0.star - Q2_0.star;
 VarS2_1 <- var(IC2_1)/n;
 VarS2_0 <- var(IC2_0)/n;
+VarATE2 <- var(IC2_1 - IC2_0)/n;
 S2_1.star + c(-1.96, 1.96)*sqrt(VarS2_1);
 S2_0.star + c(-1.96, 1.96)*sqrt(VarS2_0); 
-
-
-
+ATE2 = S2_1.star - S2_0.star;
+c(ATE2, ATE2 - 1.96*sqrt(VarATE2), ATE2 + 1.96*sqrt(VarATE2));
 
 
 ###### Estimating $S^a(3)$
@@ -454,9 +460,11 @@ IC3_1 <- d3_1_3 + d3_1_2 + d3_1_1 + S3_1.star - Q3_1.star;
 IC3_0 <- d3_0_3 + d3_0_2 + d3_0_1 + S3_0.star - Q3_0.star;
 VarS3_1 <- var(IC3_1)/n;
 VarS3_0 <- var(IC3_0)/n;
+VarATE3 <- var(IC3_1 - IC3_0)/n;
 S3_1.star + c(-1.96, 1.96)*sqrt(VarS3_1);
 S3_0.star + c(-1.96, 1.96)*sqrt(VarS3_0); 
-
+ATE3 = S3_1.star - S3_0.star;
+c(ATE3, ATE3 - 1.96*sqrt(VarATE3), ATE3 + 1.96*sqrt(VarATE3));
 
 
 
@@ -667,9 +675,11 @@ IC4_1 <- d4_1_4 + d4_1_3 + d4_1_2 + d4_1_1 + S4_1.star - Q4_1.star;
 IC4_0 <- d4_0_4 + d4_0_3 + d4_0_2 + d4_0_1 + S4_0.star - Q4_0.star;
 VarS4_1 <- var(IC4_1)/n;
 VarS4_0 <- var(IC4_0)/n;
+VarATE4 <- var(IC4_1 - IC4_0)/n;
 S4_1.star + c(-1.96, 1.96)*sqrt(VarS4_1);
 S4_0.star + c(-1.96, 1.96)*sqrt(VarS4_0); 
-
+ATE4 = S4_1.star - S4_0.star;
+c(ATE4, ATE4 - 1.96*sqrt(VarATE4), ATE4 + 1.96*sqrt(VarATE4));
 
 
 
@@ -709,37 +719,37 @@ X4.1 <- t(X[4,, drop = FALSE]);
 X4.0 <- t(X[8,, drop = FALSE]);
 
 #Time 1
-term1_1_t1 <- as.numeric(exp(t(X1.1)%*%B)/(1 + exp(t(X1.1)%*%B))**2)*X1.1%*%t(X1.1);
-term1_0_t1 <- as.numeric(exp(t(X1.0)%*%B)/(1 + exp(t(X1.0)%*%B))**2)*X1.0%*%t(X1.0);
+term1_1_t1 <- as.numeric(exp(t(X1.1)%*%B)/(1 + exp(t(X1.1)%*%B))^2)*X1.1%*%t(X1.1);
+term1_0_t1 <- as.numeric(exp(t(X1.0)%*%B)/(1 + exp(t(X1.0)%*%B))^2)*X1.0%*%t(X1.0);
 term1_t1 <-  term1_0_t1 + term1_1_t1
-term2_1_t1 <- (-X1.1 + X2.1%*%(1 + exp(t(X2.1)%*%B))**-1)%*%t(IC1_1);
-term2_0_t1 <- (-X1.0 + X2.0%*%(1 + exp(t(X2.0)%*%B))**-1)%*%t(IC1_0);
+term2_1_t1 <- (-X1.1 + X2.1%*%(1 + exp(t(X2.1)%*%B))^-1)%*%t(IC1_1);
+term2_0_t1 <- (-X1.0 + X2.0%*%(1 + exp(t(X2.0)%*%B))^-1)%*%t(IC1_0);
 term2_t1 <- term2_1_t1 + term2_0_t1;
 
 #Time 2
-term1_1_t2 <- (1 - mean(Q1_1.star))*as.numeric(exp(t(X2.1)%*%B)/(1 + exp(t(X2.1)%*%B))**2)*
+term1_1_t2 <- (1 - mean(Q1_1.star))*as.numeric(exp(t(X2.1)%*%B)/(1 + exp(t(X2.1)%*%B))^2)*
                X2.1%*%t(X2.1);
-term1_0_t2 <- (1 - mean(Q1_0.star))*as.numeric(exp(t(X2.0)%*%B)/(1 + exp(t(X2.0)%*%B))**2)*
+term1_0_t2 <- (1 - mean(Q1_0.star))*as.numeric(exp(t(X2.0)%*%B)/(1 + exp(t(X2.0)%*%B))^2)*
               X2.0%*%t(X2.0);
 term1_t2 <- term1_0_t2 + term1_1_t2
-term2_1_t2 <- (-X2.1 + X3.1%*%(1 + exp(t(X3.1)%*%B))**-1)%*%t(IC2_1);
-term2_0_t2 <- (-X2.0 + X3.0%*%(1 + exp(t(X3.0)%*%B))**-1)%*%t(IC2_0);
+term2_1_t2 <- (-X2.1 + X3.1%*%(1 + exp(t(X3.1)%*%B))^-1)%*%t(IC2_1);
+term2_0_t2 <- (-X2.0 + X3.0%*%(1 + exp(t(X3.0)%*%B))^-1)%*%t(IC2_0);
 term2_t2 <- term2_1_t2 + term2_0_t2;
 
 #Time 3
-term1_1_t3 <- (1 - mean(Q2_1.star))*as.numeric(exp(t(X3.1)%*%B)/(1 + exp(t(X3.1)%*%B))**2)*
+term1_1_t3 <- (1 - mean(Q2_1.star))*as.numeric(exp(t(X3.1)%*%B)/(1 + exp(t(X3.1)%*%B))^2)*
                X3.1%*%t(X3.1);
-term1_0_t3 <- (1 - mean(Q2_0.star))*as.numeric(exp(t(X3.0)%*%B)/(1 + exp(t(X3.0)%*%B))**2)*
+term1_0_t3 <- (1 - mean(Q2_0.star))*as.numeric(exp(t(X3.0)%*%B)/(1 + exp(t(X3.0)%*%B))^2)*
                X3.0%*%t(X3.0);
 term1_t3 <- term1_0_t3 + term1_1_t3
-term2_1_t3 <- (-X3.1 + X4.1%*%(1 + exp(t(X4.1)%*%B))**-1)%*%t(IC3_1);
-term2_0_t3 <- (-X3.0 + X4.0%*%(1 + exp(t(X4.0)%*%B))**-1)%*%t(IC3_0);
+term2_1_t3 <- (-X3.1 + X4.1%*%(1 + exp(t(X4.1)%*%B))^-1)%*%t(IC3_1);
+term2_0_t3 <- (-X3.0 + X4.0%*%(1 + exp(t(X4.0)%*%B))^-1)%*%t(IC3_0);
 term2_t3 <- term2_1_t3 + term2_0_t3;
 
 #Time 4
-term1_1_t4 <- (1 - mean(Q3_1.star))*as.numeric(exp(t(X4.1)%*%B)/(1 + exp(t(X4.1)%*%B))**2)*
+term1_1_t4 <- (1 - mean(Q3_1.star))*as.numeric(exp(t(X4.1)%*%B)/(1 + exp(t(X4.1)%*%B))^2)*
                X4.1%*%t(X4.1);
-term1_0_t4 <- (1 - mean(Q3_0.star))*as.numeric(exp(t(X4.0)%*%B)/(1 + exp(t(X4.0)%*%B))**2)*
+term1_0_t4 <- (1 - mean(Q3_0.star))*as.numeric(exp(t(X4.0)%*%B)/(1 + exp(t(X4.0)%*%B))^2)*
                X4.0%*%t(X4.0);
 term1_t4 <- term1_0_t4 + term1_1_t4
 term2_1_t4 <- (-X4.1)%*%t(IC4_1);
@@ -750,9 +760,3 @@ term2_t4 <- term2_1_t4 + term2_0_t4;
 var.hr <- var(t(solve(term1_t1 + term1_t2 + term1_t3 + term1_t4)%*%
               (term2_t1 + term2_t2 + term2_t3 + term2_t4)))/n; 
 cbind(B, B - 1.96*sqrt(diag(var.hr)), B + 1.96*sqrt(diag(var.hr)));
-
-
-
-
-
-

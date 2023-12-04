@@ -2,8 +2,8 @@
 #                                                          #
 #  Survival LTMLE with a time-fixed exposure and           #
 #  time-varying censoring                                  #
-#  V0.6                                                    #
-#  date: 2023-06-14                                        #
+#  V0.7                                                    #
+#  date: 2023-12-04                                        #
 #  Maintainer: Denis Talbot                                #
 #              denis.talbot@fmed.ulaval.ca                 #
 #                                                          #
@@ -48,7 +48,7 @@ require(SuperLearner);
 #                indices of the L covariates. The sets of variables (the elements of the list)
 #                must be temporally ordered in Lvar. For example, if there are two time points
 #                and (L11, L12) are the covariates at time 1 and (L21, L22, L23) are the covariates
-#                at time 3, then Lvar = list(c(L11, L12), c(L21, L22, L23)). If there are only
+#                at time 2, then Lvar = list(c(L11, L12), c(L21, L22, L23)). If there are only
 #                baseline covariates, it is possible to repeat the same covariates at all times
 #                with lookback = 1.
 # L0var:         A character vector of time-fixed L variables measured at baseline or
@@ -726,62 +726,66 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
 
   #### Modeling the hazard (MSM)
 
-  ## Initializing some objects
-  max.k = K*nlevels(as.factor(dat[,Avar]));
-  lambda.t = w.t = numeric(max.k);
-  X.t = data.frame(matrix(, nrow = max.k, ncol = 2));
-  k = 1;
+  if(!is.null(MSM.form)){
+    ## Initializing some objects
+    max.k = K*nlevels(as.factor(dat[,Avar]));
+    lambda.t = w.t = numeric(max.k);
+    X.t = data.frame(matrix(, nrow = max.k, ncol = 2));
+    k = 1;
+    
+    ## Building lambda, the weights, and the exposure and time matrix
+    for(j in 2:(K+1)){
+      ak = 1;
+      for(a in sort(unique(dat[,Avar]))){
+        lambda.t[k] = (St[j-1, ak] - St[j, ak])/St[j-1, ak];
+        w.t[k] = St[j-1, ak];
+        X.t[k,] = data.frame(a, j-1);
+        ak = ak + 1;
+        k = k + 1;
+      } # End of loop on a
+    } # End of loop on j
   
-  ## Building lambda, the weights, and the exposure and time matrix
-  for(j in 2:(K+1)){
-    ak = 1;
-    for(a in sort(unique(dat[,Avar]))){
-      lambda.t[k] = (St[j-1, ak] - St[j, ak])/St[j-1, ak];
-      w.t[k] = St[j-1, ak];
-      X.t[k,] = data.frame(a, j-1);
-      ak = ak + 1;
-      k = k + 1;
-    } # End of loop on a
-  } # End of loop on j
-
-  ## Estimating the MSM parameters
-  names(X.t) = c(names(dat[,Avar, drop = FALSE]), "time");
-  dat.lambda = data.frame(lambda.t, w.t, X.t);
-  X.t = model.matrix(MSM.form, data = dat.lambda);
-  mod.lambda = suppressWarnings(glm(lambda.t ~ X.t[,-1],
-                                    family = "binomial",
-                                    weights = w.t,
-                                    data = dat.lambda));
-  lambda = coef(mod.lambda);
-  names(lambda)[-1] = substr(names(lambda)[-1], 10, 150); # Renames the column of lambda
-
-  ## Computing the variance of the MSM parameters
-  t1 = t2 = 0;
-  nlevelA = nlevels(as.factor(dat[,Avar]));
-  k = 1;
-  for(j in 1:K){
-    for(a in 1:nlevelA){
-      t1 = t1 + as.numeric(w.t[k]*exp(t(X.t[k,])%*%lambda)/(1 + exp(t(X.t[k,])%*%lambda))**2)*
-                X.t[k,]%*%t(X.t[k,]);
-      if(k + nlevelA <= max.k){
-        t2 = t2 + (-X.t[k,] + X.t[k+nlevelA,]%*%solve(1 + exp(t(X.t[k+nlevelA,])%*%lambda)))%*%t(ICt[,a,j]);
-      }else{
-        t2 = t2 + -X.t[k,]%*%t(ICt[,a,j]);
+    
+    ## Estimating the MSM parameters
+    names(X.t) = c(names(dat[,Avar, drop = FALSE]), "time");
+    dat.lambda = data.frame(lambda.t, w.t, X.t);
+    X.t = model.matrix(MSM.form, data = dat.lambda);
+    mod.lambda = suppressWarnings(glm(lambda.t ~ X.t[,-1],
+                                      family = "binomial",
+                                      weights = w.t,
+                                      data = dat.lambda));
+    lambda = coef(mod.lambda);
+    names(lambda)[-1] = substr(names(lambda)[-1], 10, 150); # Renames the column of lambda
+  
+    ## Computing the variance of the MSM parameters
+    t1 = t2 = 0;
+    nlevelA = nlevels(as.factor(dat[,Avar]));
+    k = 1;
+    for(j in 1:K){
+      for(a in 1:nlevelA){
+        t1 = t1 + as.numeric(w.t[k]*exp(t(X.t[k,])%*%lambda)/(1 + exp(t(X.t[k,])%*%lambda))**2)*
+                  X.t[k,]%*%t(X.t[k,]);
+        if(k + nlevelA <= max.k){
+          t2 = t2 + (-X.t[k,] + X.t[k+nlevelA,]%*%solve(1 + exp(t(X.t[k+nlevelA,])%*%lambda)))%*%t(ICt[,a,j]);
+        }else{
+          t2 = t2 + -X.t[k,]%*%t(ICt[,a,j]);
+        }
+        k = k + 1;
       }
-      k = k + 1;
     }
+    IC.lambda = solve(t1)%*%t2;
+    Var.lambda = var(t(IC.lambda))/n;
   }
-  IC.lambda = solve(t1)%*%t2;
-  Var.lambda = var(t(IC.lambda))/n;
-
  
   #### Printing results
   results.St = data.frame(S = St, SE.S = SE.St);
-  SE.lambda = sqrt(diag(Var.lambda));
-  results.lambda = data.frame(Coef = lambda, 
-                              SE = SE.lambda,
-                              lower95 = lambda - qnorm(0.975)*SE.lambda,
-                              upper95 = lambda + qnorm(0.975)*SE.lambda);                              
+  if(!is.null(MSM.form)){
+    SE.lambda = sqrt(diag(Var.lambda));
+    results.lambda = data.frame(Coef = lambda, 
+                                SE = SE.lambda,
+                                lower95 = lambda - qnorm(0.975)*SE.lambda,
+                                upper95 = lambda + qnorm(0.975)*SE.lambda);
+  }
 
   if(Print){
     cat("\n Estimated survival probabilities:\n ---------------------------------\n");

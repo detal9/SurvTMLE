@@ -2,8 +2,8 @@
 #                                                          #
 #  Survival LTMLE with a time-fixed exposure and           #
 #  time-varying censoring                                  #
-#  V0.7                                                    #
-#  date: 2023-12-04                                        #
+#  V1.0.0                                                  #
+#  date: 2025-01-20                                        #
 #  Maintainer: Denis Talbot                                #
 #              denis.talbot@fmed.ulaval.ca                 #
 #                                                          #
@@ -14,14 +14,19 @@ require(polspline);
 require(SuperLearner);
 
 
-#### Things to be added in future versions:
-# How to handle missing data
-# Eliminate non-integer #successes in binomial glm warnings
-# Add a description and value section 
-
-
 #### Description
-# ...
+# Estimates counterfactual survival curves, average treatment effects and parameters
+# of marginal structural hazard model using a targeted maximum likelihood estimator
+# for time-to-event data subject to right censoring. 
+#
+# The function currently supports binary or multilevel exposures. The assumed data
+# structure is (L1, A, C1, Y1, L2, C2, Y2, ..., LK, CK, YK), where L are covariates or
+# potential confounders, A is the time-fixed exposure, C are indicators of censoring or
+# loss to follow-up and Y are event indicators. As such, continuous follow-up time need
+# to be discretized before using the function.
+#
+# The function does not currently support missing data other than those due to censoring.
+# Please see our tutorial and examples for more information on how to use this function.
 
 
 #### Arguments
@@ -74,9 +79,10 @@ require(SuperLearner);
 #                is binary and a multinomial regression otherwise. 
 #                If the exposure is categorical (>2 levels), Amod = "SL" results in using a
 #                polychotomous regression and classification.
-# SL.library:    A character vector indicating the learners to be used within the Super Learner.
-#                The default is c("SL.glm", "SL.glm.interaction"); The list of all possible
-#                learners can be viewed with listWrappers();
+# SL.library:    A character vector or a list of character vectors indicating the learners and screeners
+#                to be used within the Super Learner.
+#                The default is c("SL.glm", "SL.glm.interaction"); The list of all default
+#                learners can be viewed with listWrappers(); 
 # Y.SL.library:  A character vector indicating the learners to be used within the Super Learner
 #                for modeling the outcome. The default is the same as SL.library.
 # C.SL.library:  A character vector indicating the learners to be used within the Super Learner
@@ -90,7 +96,10 @@ require(SuperLearner);
 #                are truncated. For censoring C, only predicted probabilities 
 #                P(C = 0|A, L) < gbound are truncated. Defaults is 0.005.
 # V:             Number of folds for the cross-validation when using the Super Learner. 
-#                Default is 5.
+#                Default is adapted as a function of effective sample size in each model.
+#                See 'Phillips, R. V., van der Laan, M. J., Lee, H., & Gruber, S. (2023).
+#                Practical considerations for specifying a super learner.
+#                International Journal of Epidemiology, 52(4), 1276-1285.' for details
 # MSM.form:      The right hand side of a formula for the MSM relating the hazards 
 #                to the exposure and time (optional).
 #                The formula can only involve terms for the exposure (with the same name
@@ -100,18 +109,31 @@ require(SuperLearner);
 # Print:         TRUE or FALSE, whether the function should print the main results (default = TRUE)
 
 
-
-
-
 #### Value
-# ...
-
+# The function returns a list with the following objects
+# St:            A matrix of the estimated survival probabilities, their standard error, and 95%
+#                confidence intervals at the different time points according to possible exposure levels
+# MSM:           A matrix of the estimated parameters of the working marginal structural model, their
+#                standard error, and 95% confidence intervals. Only returned if MSM.form was supplied.
+# vcov:          The estimated variance covariance matrix of the working marginal structural model.
+#                Only returned if MSM.form was supplied.
+# ATE:		       Estimated average treatment effects at the different time points.
+# SE.ATE:	       Standard error of the average treatment effects.
+# LL.ATE:        Lower limit of the 95% confidence intervals for the average treatment effects.
+# UL.ATE:        Upper limit of the 95% confidence intervals for the average treatment effects.
+# CV.details:    Number of cross-validation folds that were effectively used if SuperLearner was used.
+#                VA for modeling the treatment probability, VC for modeling the censoring probabilities
+#                VY for modeling the outcome probabilities.
 
 
 #### Details
-# Main terms only, but possible to include product terms or polynomial terms or even spline terms
-#
-# Missing data are not supported. Users may consider using multiple imputation. 
+# * On the use of glmnet and screen.glmnet for modeling outcome probabilities:
+# The TMLE algorithm coded here uses iterated conditional expectations and
+# needs to model some outcome probabilities. Those outcome probabilities are
+# continuous and bounded in [0,1]. The default version of glmnet and screen.glmnet
+# do not allow this. Here, we use a modified version where the outcome probabilities
+# are treated as continuous and predictions outside the bounds are brought 
+# back at the bounds.
 
 
 #### Function
@@ -121,13 +143,14 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
                      Ymod = "parametric", Cmod = "parametric", Amod = "parametric",
                      SL.library = c("SL.glm", "SL.glm.interaction"),
                      Y.SL.library = SL.library, C.SL.library = SL.library,
-                     A.SL.library = SL.library, gbound = 0.025, V = 5,
+                     A.SL.library = SL.library, gbound = 0.025, V = NULL,
                      MSM.form = NULL, Print = TRUE){
 
   ### Sample size (n) and number of time points (K)
   n = nrow(dat);
-  K = length(Yvar); 
-
+  K = length(Yvar);
+  
+  
   #### Error checks
   ## Verifications for dat
   if(!is.data.frame(dat)) stop("dat must be a data frame");
@@ -254,46 +277,58 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
 
   ## Verifications for SL.library
   if(Ymod == "SL" | Cmod == "SL" | Amod == "SL"){
-    if(!is.character(SL.library)) stop("SL.library must a character vector");
+    if(is.list(SL.library)){
+      learners = unlist(SL.library);
+    } else {learners = SL.library};
+    if(!is.character(learners)) stop("SL.library must be a character vector or a list of character vectors");
 
-    # The following code was extracted/adapted from listWrapper
+    # The following code was extracted/adapted from listWrappers
     everything = sort(getNamespaceExports("SuperLearner"));
-    SL.algos = everything[grepl(pattern = "^[S]L", everything)];
+    SL.algos = c(everything[grepl(pattern = "^[S]L", everything)], everything[grepl(pattern = "screen", everything)]);
 
-    if(min(SL.library %in% SL.algos) == 0) stop("One of the learner supplied in SL.library is invalid");
+    if(min(learners %in% SL.algos) == 0) warning("One of the learner supplied in SL.library is not in listWrappers(). \nThis may cause an error if the learner is not appropriate for SuperLearner.");
   }
 
   ## Verifications for Y.SL.library
   if(Ymod == "SL"){
-    if(!is.character(Y.SL.library)) stop("Y.SL.library must a character vector");
+    if(is.list(Y.SL.library)){
+      ylearners = unlist(Y.SL.library);
+    } else {ylearners = Y.SL.library};
+    if(!is.character(ylearners)) stop("Y.SL.library must be a character vector or a list of character vectors");
 
     # The following code was extracted/adapted from listWrapper
     everything = sort(getNamespaceExports("SuperLearner"));
-    SL.algos = everything[grepl(pattern = "^[S]L", everything)];
+    SL.algos = c(everything[grepl(pattern = "^[S]L", everything)], everything[grepl(pattern = "screen", everything)]);
 
-    if(min(Y.SL.library %in% SL.algos) == 0) stop("One of the learner supplied in Y.SL.library is invalid");
+    if(min(ylearners %in% SL.algos) == 0) warning("One of the learner supplied in Y.SL.library is not in listWrappers(). \nThis may cause an error if the learner is not appropriate for SuperLearner.");
   }
 
   ## Verifications for C.SL.library
   if(Cmod == "SL"){
-    if(!is.character(C.SL.library)) stop("C.SL.library must a character vector");
+    if(is.list(C.SL.library)){
+      clearners = unlist(C.SL.library);
+    } else {clearners = C.SL.library};
+    if(!is.character(clearners)) stop("C.SL.library must be a character vector or a list of character vectors");
 
     # The following code was extracted/adapted from listWrapper
     everything = sort(getNamespaceExports("SuperLearner"));
-    SL.algos = everything[grepl(pattern = "^[S]L", everything)];
+    SL.algos = c(everything[grepl(pattern = "^[S]L", everything)], everything[grepl(pattern = "screen", everything)]);
 
-    if(min(C.SL.library %in% SL.algos) == 0) stop("One of the learner supplied in C.SL.library is invalid");
+    if(min(clearners %in% SL.algos) == 0) warning("One of the learner supplied in C.SL.library is not in listWrappers(). \nThis may cause an error if the learner is not appropriate for SuperLearner.");
   }
 
   ## Verifications for A.SL.library
   if(Amod == "SL" & nlevels(as.factor(dat[,Avar])) == 2){
-    if(!is.character(A.SL.library)) stop("A.SL.library must a character vector");
+    if(is.list(A.SL.library)){
+      alearners = unlist(A.SL.library);
+    } else {alearners = A.SL.library};
+    if(!is.character(alearners)) stop("A.SL.library must be a character vector or a list of character vectors");
 
     # The following code was extracted/adapted from listWrapper
     everything = sort(getNamespaceExports("SuperLearner"));
-    SL.algos = everything[grepl(pattern = "^[S]L", everything)];
+    SL.algos = c(everything[grepl(pattern = "^[S]L", everything)], everything[grepl(pattern = "screen", everything)]);
 
-    if(min(A.SL.library %in% SL.algos) == 0) stop("One of the learner supplied in A.SL.library is invalid");
+    if(min(alearners %in% SL.algos) == 0) warning("One of the learner supplied in A.SL.library is not in listWrappers(). \nThis may cause an error if the learner is not appropriate for SuperLearner.");
   }
 
   ## Verifications for gbound
@@ -303,9 +338,14 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
 
 
   ## Verifications for V
-  if(!is.numeric(V)) stop("V must be a numeric value >= 2");
-  if(length(V) > 1) stop("V must be a numeric value >= 2");
-  if(V < 2) stop("V must be a numeric value >= 2");
+  if(is.null(V)){ # Default data-adaptive behavior
+    VA = NULL; VY = NULL; VC = NULL;
+  } else{
+    if(!is.numeric(V)) stop("V must be a numeric value >= 2");
+    if(length(V) > 1) stop("V must be a numeric value >= 2");
+    if(V < 2) stop("V must be a numeric value >= 2");    
+    VA = V; VY = V; VC = V;
+  }
 
 
   ## Verification for MSM.form
@@ -320,7 +360,35 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
   ### Compute lower and upper bounds for g estimates
   gbounds = c(min(gbound, 1 - gbound), max(gbound, 1 - gbound)); # Bounds for g estimate
 
+  
+  ### Initialize an object to output number of cross-validation folds
+  CV.details = list();
 
+  
+  ### If Y_{t-1} = 1, replace Y_t by 1 and C_t by 0
+  ### If C_{t-1} = 1, replace Y_t by 0 and C_t by 1
+  ### If C_t = 1, replace Y_t by 0
+  for(j in 2:K){
+    dat[,Yvar[j]][dat[,Yvar[j-1]] == 1] = 1;
+    dat[,Cvar[j]][dat[,Yvar[j-1]] == 1] = 0;
+    dat[,Yvar[j]][dat[,Cvar[j-1]] == 1] = 0;
+    dat[,Cvar[j]][dat[,Cvar[j-1]] == 1] = 1;
+  }
+  for(j in 1:K){
+    dat[,Yvar[j]][dat[,Cvar[j]] == 1] = 0;
+  }
+  
+
+  ### Verify if there is any missing data
+  if(anyNA(dat[, Avar]) | anyNA(dat[, Yvar]) |
+     anyNA(dat[, Cvar]) | anyNA(dat[, L0var]) |
+     anyNA(dat[, unlist(Lvar[[1]])])) stop("dat contains missing data for at least one of the variables to be used.\nMissing data are not currently allowed. You may consider performing multiple imputations.");
+  for(j in 2:K){
+    if(any(dat[,Yvar[j-1]] == 0 & dat[,Cvar[j-1]] == 0 &
+       is.na(dat[, unlist(Lvar[[j]])]))) stop("dat contains missing data for at least one of the variables to be used.\nMissing data are not currently allowed. You may consider performing multiple imputations.");
+  }
+  
+  
   #### Modeling the exposure
   if(nlevels(as.factor(dat[,Avar])) == 2){ # A is binary
     if(is.null(L0var)){ # No time-fixed covariates
@@ -334,10 +402,19 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
     if(Amod == "parametric"){
       gA = glm(Aform, data = dat, family = "binomial", maxit = 500)$fitted;
     }else{ #Amod == "SL"
-      X = as.data.frame(model.matrix(as.formula(Aform), data = dat)[,-1]); # Obtain a matrix to accomodate factors
+      if(is.null(V)){ # Data-adaptive choice of VA
+        neff = min(5*sum(dat[, Avar]),5*sum(1 - dat[, Avar]), n);
+        VA = neff;
+        if(neff >= 30) VA = 20;
+        if(neff >= 500) VA = 10;
+        if(neff >= 5000) VA = 5;
+        if(neff >= 10000) VA = 2;
+        CV.details$VA = VA;
+      }
+      X = as.data.frame(model.matrix(as.formula(Aform), data = dat)[,-1]); # Obtain a matrix to accommodate factors
       names(X) = paste0("X", 1:ncol(X));
       mod.A = SuperLearner(Y = dat[, Avar], X = X, family = "binomial",
-                           SL.library = A.SL.library, cvControl = list(V = V));
+                           SL.library = A.SL.library, cvControl = list(V = VA));
       gA = predict(mod.A, OnlySL = TRUE)$pred; 
     } 
     gA = pmax(pmin(gA, gbounds[2]), gbounds[1]); # Bounding gA
@@ -394,6 +471,7 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
 
   #### Modeling the censoring
   gC = list();
+  if(Cmod == "SL" & is.null(V)) CV.details$VC = rep(NA, K);
   if(is.null(lookbackC)) lookbackC == Inf;
   if(is.null(L0var)){ # No time-fixed covariates
     if(Cmod == "parametric"){
@@ -416,7 +494,7 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
         }else{ # Not the first time point
           Cvarj_1 = names(dat[,Cvar[j-1], drop = FALSE]); # previous Cvar
           Yvarj_1 = names(dat[,Yvar[j-1], drop = FALSE]); # previous Yvar
-          if(max(dat[,Cvar[j]], na.rm = TRUE) == 0){ # No censoring
+          if(max(dat[,Cvar[j]][dat[,Cvar[j-1]] == 0]) == 0){ # No censoring
             gC[[j]] = rep(NA, n);
             gC[[j]][dat[, Cvarj_1] == 0 & dat[,Yvarj_1] == 0] = 1;
           }else{  # At least some censoring
@@ -441,17 +519,28 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
           if(max(dat[,Cvar[j]]) == 0){ # No censoring
             gC[[j]] = rep(1, n);
           }else{ # At least some censoring
+            if(is.null(V)){ # Data-adaptive choice of VC
+              neff = min(5*sum(dat[, Cvar[[j]]], na.rm = TRUE),
+                         5*sum(1 - dat[, Cvar[[j]]], na.rm = TRUE), n);
+              VC = neff;
+              if(neff >= 30) VC = 20;
+              if(neff >= 500) VC = 10;
+              if(neff >= 5000) VC = 5;
+              if(neff >= 10000) VC = 2;
+              CV.details$VC[j] = VC;
+            }
             # The design matrix
             X = as.data.frame(model.matrix(as.formula(Cform), data = dat)[,-1]);
             names(X) = paste0("X", 1:ncol(X));
+            suppressWarnings({
             mod.C = SuperLearner(Y = dat[, Cvar[[j]]], X = X, family = "binomial",
-                                 SL.library = C.SL.library, cvControl = list(V = V));
+                                 SL.library = C.SL.library, cvControl = list(V = VC));});
             gC[[j]] = pmax(1 - predict(mod.C, OnlySL = TRUE)$pred, gbounds[1]); 
           }
         }else{ # not the first time point
           Cvarj_1 = names(dat[,Cvar[j-1], drop = FALSE]); # previous Cvar
           Yvarj_1 = names(dat[,Yvar[j-1], drop = FALSE]); # previous Yvar
-          if(max(dat[,Cvar[j]], na.rm = TRUE) == 0){ # No censoring
+          if(max(dat[,Cvar[j]][dat[,Cvar[j-1]] == 0]) == 0){ # No censoring
             gC[[j]] = rep(NA, n);
             gC[[j]][dat[, Cvarj_1] == 0 & dat[,Yvarj_1] == 0] = 1;
           }else{  # At least some censoring
@@ -459,8 +548,19 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
             used = which(dat[, Cvarj_1] == 0 & dat[, Yvarj_1] == 0);
             X = as.data.frame(model.matrix(as.formula(Cform), data = dat[used,])[,-1]);
             names(X) = paste0("X", 1:ncol(X));
+            if(is.null(V)){ # Data-adaptive choice of VC
+              neff = min(5*sum(dat[, Cvar[[j]]], na.rm = TRUE),
+                         5*sum(1 - dat[, Cvar[[j]]], na.rm = TRUE), sum(used));
+              VC = neff;
+              if(neff >= 30) VC = 20;
+              if(neff >= 500) VC = 10;
+              if(neff >= 5000) VC = 5;
+              if(neff >= 10000) VC = 2;
+              CV.details$VC[j] = VC;
+            }
+            suppressWarnings({
             mod.C = SuperLearner(Y = dat[used, Cvar[[j]]], X = X, family = "binomial",
-                                 SL.library = C.SL.library, cvControl = list(V = V));
+                                 SL.library = C.SL.library, cvControl = list(V = VC));});
             gC[[j]][used] = pmax(1 - predict(mod.C, OnlySL = TRUE)$pred, gbounds[1]); 
           }
         }
@@ -488,7 +588,7 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
         }else{ # Not the first time point
           Cvarj_1 = names(dat[,Cvar[j-1], drop = FALSE]); # previous Cvar
           Yvarj_1 = names(dat[,Yvar[j-1], drop = FALSE]); # previous Yvar
-          if(max(dat[,Cvar[j]], na.rm = TRUE) == 0){ # No censoring
+          if(max(dat[,Cvar[j]][dat[,Cvar[j-1]] == 0]) == 0){ # No censoring
             gC[[j]] = rep(NA, n);
             gC[[j]][dat[, Cvarj_1] == 0 & dat[,Yvarj_1] == 0] = 1;
           }else{  # At least some censoring
@@ -514,17 +614,28 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
           if(max(dat[,Cvar[j]]) == 0){ # No censoring
             gC[[j]] = rep(1, n);
           } else{ # At least some censoring
+            if(is.null(V)){ # Data-adaptive choice of VC
+              neff = min(5*sum(dat[, Cvar[[j]]], na.rm = TRUE),
+                         5*sum(1 - dat[, Cvar[[j]]], na.rm = TRUE), n);
+              VC = neff;
+              if(neff >= 30) VC = 20;
+              if(neff >= 500) VC = 10;
+              if(neff >= 5000) VC = 5;
+              if(neff >= 10000) VC = 2;
+              CV.details$VC[j] = VC;
+            }
             # The design matrix
             X = as.data.frame(model.matrix(as.formula(Cform), data = dat)[,-1]);
             names(X) = paste0("X", 1:ncol(X));
+            suppressWarnings({
             mod.C = SuperLearner(Y = dat[, Cvar[[j]]], X = X, family = "binomial",
-                                 SL.library = C.SL.library, cvControl = list(V = V));
+                                 SL.library = C.SL.library, cvControl = list(V = VC));});
             gC[[j]] = pmax(1 - predict(mod.C, OnlySL = TRUE)$pred, gbounds[1]); 
           }
         }else{ # Not the first time point
           Cvarj_1 = names(dat[,Cvar[j-1], drop = FALSE]); # previous Cvar
           Yvarj_1 = names(dat[,Yvar[j-1], drop = FALSE]); # previous Yvar
-          if(max(dat[,Cvar[j]], na.rm = TRUE) == 0){ # No censoring
+          if(max(dat[,Cvar[j]][dat[,Cvar[j-1]] == 0]) == 0){ # No censoring
             gC[[j]] = rep(NA, n);
             gC[[j]][dat[, Cvarj_1] == 0 & dat[,Yvarj_1] == 0] = 1;
           }else{  # At least some censoring
@@ -532,8 +643,19 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
             used = which(dat[, Cvarj_1] == 0 & dat[, Yvarj_1] == 0);
             X = as.data.frame(model.matrix(as.formula(Cform), data = dat[used,])[,-1]);
             names(X) = paste0("X", 1:ncol(X));
+            if(is.null(V)){ # Data-adaptive choice of VC
+              neff = min(5*sum(dat[, Cvar[[j]]], na.rm = TRUE),
+                         5*sum(1 - dat[, Cvar[[j]]], na.rm = TRUE), sum(used));
+              VC = neff;
+              if(neff >= 30) VC = 20;
+              if(neff >= 500) VC = 10;
+              if(neff >= 5000) VC = 5;
+              if(neff >= 10000) VC = 2;
+              CV.details$VC[j] = VC;
+            }
+            suppressWarnings({
             mod.C = SuperLearner(Y = dat[used, Cvar[[j]]], X = X, family = "binomial",
-                                 SL.library = C.SL.library, cvControl = list(V = V));
+                                 SL.library = C.SL.library, cvControl = list(V = VC));});
             gC[[j]][used] = pmax(1 - predict(mod.C, OnlySL = TRUE)$pred, gbounds[1]); 
           }
         }
@@ -554,7 +676,214 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
   }
 
 
+  #### Replace glmnet by glmnet by SL.glmnet_1_100_10 to accomodate continuous [0,1] data in ICE if needed
+
+  if("SL.glmnet" %in% unlist(Y.SL.library) | "screen.glmnet" %in% unlist(Y.SL.library)){
+    ## Replace "SL.glmnet" with "SL.glmnet_1_100_10"  
+    replace_string <- function(input_vector) {
+      gsub("SL.glmnet", "SL.glmnet_1_100_10", input_vector)
+    }
+    
+    if(is.character(Y.SL.library)){
+      Y.SL.library = replace_string(Y.SL.library); 
+    } else{ # Y.SL.library is a list of character vectors
+      Y.SL.library = lapply(Y.SL.library, replace_string);
+    }
+    
+    ## Replace "screen.glmnet" with "screen.glmnet_1_10_200"
+    replace_string <- function(input_vector) {
+      gsub("screen.glmnet", "screen.glmnet_1_10_200", input_vector)
+    }
+    
+    if(is.character(Y.SL.library)){
+      Y.SL.library = replace_string(Y.SL.library); 
+    } else{ # Y.SL.library is a list of character vectors
+      Y.SL.library = lapply(Y.SL.library, replace_string);
+    }
+    
+    ## The code to create SL.glmnet_1_100_10, supplied by Michael Shomaker
+    SL.glmnet_base <- function (Y, X, newX, family, obsWeights, id, alpha = 1, nfolds = 10, 
+                                nlambda = 100, useMin = TRUE, loss = "deviance", verbose=T, ...) 
+    {
+      #
+      if(verbose==T){cat("SL.glmnet started with alpha=", alpha, ", ", nfolds, "-fold CV, and ", nlambda, " candidate lambdas. ", sep="")}
+      start_time <- Sys.time()
+      SuperLearner:::.SL.require("glmnet")
+      # for ltmle 
+      fam.init <- family$family
+      Y <- as.vector(as.matrix(Y))
+      if (all(Y == 0 | Y == 1)) {
+        family$family <- "binomial"
+      } else {
+        family$family <- "gaussian"
+      }
+      fam.end <- family$family
+      #
+      if (!is.matrix(X)) {
+        X <- model.matrix(~-1 + ., X)
+        newX <- model.matrix(~-1 + ., newX)
+      }
+      fitCV <- glmnet::cv.glmnet(x = X, y = Y, weights = obsWeights, 
+                                 lambda = NULL, type.measure = loss, nfolds = nfolds, 
+                                 family = family$family, alpha = alpha, nlambda = nlambda, 
+                                 ...)
+      pred <- predict(fitCV, newx = newX, type = "response", 
+                      s = ifelse(useMin, "lambda.min", "lambda.1se"))
+      #
+      if(fam.init=="binomial" & fam.end=="gaussian"){if(any(pred<0)){pred[pred<0]<-0};if(any(pred>1)){pred[pred>1]<-1};if(verbose==T){cat("Note: predictions falling outside [0,1] have been set as 0/1")}}
+      #
+      fit <- list(object = fitCV, useMin = useMin)
+      class(fit) <- "SL.glmnet"
+      out <- list(pred = pred, fit = fit)
+      #
+      end_time <- Sys.time()
+      if(verbose==T){cat("SL.glmnet finished. Time:", round(difftime(end_time, start_time, units="mins"), digits=4), "mins \n\n")}
+      #
+      return(out)
+    }
+    assign("SL.glmnet_base", SL.glmnet_base, envir = .GlobalEnv)
+    
+    #
+    make.SL.glmnet <- function(alpha=1, nlambda=100, nfolds=10, verbose=T){
+      
+      tuneGrid <- expand.grid(alpha=alpha, nlambda=nlambda, nfolds=nfolds)
+      
+      for (q in seq(nrow(tuneGrid))) {
+        eval(parse(text = paste0("SL.glmnet_", paste(tuneGrid[q, ],collapse="_"),
+                                 "<- function(..., alpha=", tuneGrid[q, 1], ", nlambda=",tuneGrid[q, 2], ", nfolds=", tuneGrid[q, 3],
+                                 " , verbose = ", verbose,  ")
+                         {SL.glmnet_base(..., alpha=alpha, nlambda=nlambda, nfolds=nfolds, verbose=verbose)}"
+        )), envir = .GlobalEnv)
+        
+      }  
+    }
+    make.SL.glmnet(verbose = FALSE);
+    
+    ## The code to create screen.glmnet, also supplied by Michael Shomaker
+    screen.cramersv_base <- function(Y, X, nscreen = 4, num_cat = 10, verbose = T, ...) {
+      if(verbose==T){cat("screen.cramersv for", nscreen, "variables; ")}
+      start_time <- Sys.time()
+      SuperLearner:::.SL.require("vcd")
+      #
+      if (ncol(X) > nscreen) {
+        dat <- cbind(Y, X)
+        contin_var <- apply(dat, 2, function(var) length(unique(var)) > num_cat)
+        make_categ <- function(var) {
+          num_qu <- length(unique(quantile(var, prob = seq(0, 1, 0.2))))
+          if(num_qu >2){ret<-cut(var, unique(quantile(var, prob = seq(0, 1, 0.2))), include.lowest = T)}
+          if(num_qu<=2){ret<-cut(var, c(-Inf,unique(quantile(var, prob = seq(0, 1, 0.2))),Inf), include.lowest = T)}
+          ret
+        }
+        if (any(contin_var)) {
+          dat[, contin_var] <- apply(dat[, contin_var, drop = FALSE], 2, make_categ)
+        }
+        calc_cram_v <- function(x_var, y_var) vcd::assocstats(table(y_var, x_var))$cramer
+        cramers_v <- apply(dat[, !colnames(dat) %in% "Y"], 2, calc_cram_v, y_var = dat[, "Y"])
+        if(verbose==T){cat("screened:",colnames(X)[unname(rank(-cramers_v) <= nscreen)],"\n",sep=" ");
+          cat("sample size:",dim(X)[1],"; "); 
+        }
+        whichVariable <- unname(rank(-cramers_v) <= nscreen)
+      }else{
+        if(verbose==T){cat("screened all", ncol(X), "variables \n")}
+        whichVariable <- rep(TRUE, ncol(X))}
+      end_time <- Sys.time()
+      if(verbose==T){cat("time:", round(difftime(end_time, start_time, units="mins"), digits=4), "mins \n")}
+      return(whichVariable)
+    }
+    assign("screen.cramersv_base", screen.cramersv_base, envir = .GlobalEnv)
+    
+    screen.glmnet_base <- function(Y, X, family, alpha = 1, verbose=T,
+                                   nfolds = 10, nlambda = 200, nscreen=2, ...){
+      if(verbose==T){cat("screen.glmnet with alpha=", alpha, " and ", nfolds, " fold CV \n", sep="")}
+      start_time <- Sys.time()
+      SuperLearner:::.SL.require("glmnet")
+      # relevant for column names but shouldn't be a matrix anyways
+      X <- as.data.frame(X)
+      # chose family dependent upon response
+      Y <- as.vector(as.matrix(Y))
+      if (all(Y == 0 | Y == 1)) {
+        family$family <- "binomial"
+      } else {
+        family$family <- "gaussian"
+      }
+      saveY<-Y;saveX<-X
+      # needed for var names to select from levels of factors later on
+      if (ncol(X) > 26 * 27) stop("Find further column names for X!")
+      let <- c(letters, sort(do.call("paste0", expand.grid(letters, letters[1:26]))))
+      names(X) <- let[1:ncol(X)]
+      # factors are coded as dummies which are standardized in cv.glmnet()
+      # intercept is not in model.matrix() because its already in cv.glmnet()
+      is_fact_var <- sapply(X, is.factor)
+      X <- try(model.matrix(~ -1 + ., data = X), silent = FALSE)
+      successfulfit <- FALSE
+      fitCV <- try(glmnet::cv.glmnet(
+        x = X, y = Y, lambda = NULL, type.measure = "deviance",
+        nfolds = nfolds, family = family$family, alpha = alpha,
+        nlambda = nlambda, keep = T
+      ), silent = TRUE)
+      # if no variable was selected, penalization might have been too strong, try log(lambda)
+      if (all(fitCV$nzero == 0) | all(is.na(fitCV$nzero))) {
+        fitCV <- try(glmnet::cv.glmnet(
+          x = X, y = Y, lambda = log(fitCV$glmnet.fit$lambda + 1), type.measure = "deviance",
+          nfolds = nfolds, family = family$family, alpha = alpha, keep = T
+        ), silent = TRUE)
+      }
+      if(class(fitCV)=="try-error"){successfulfit <- FALSE}else{successfulfit <- TRUE}
+      whichVariable <- NULL
+      if(successfulfit==TRUE){
+        coefs <- coef(fitCV$glmnet.fit, s = fitCV$lambda.min)
+        if(all(coefs[-1]==0)){whichVariable<-screen.cramersv_base(Y=saveY,X=saveX,nscreen=nscreen)
+        if(verbose==T){cat("Lasso screened away all variables and screening was thus based on Cramer's V \n")}}else{  
+          var_nms <- coefs@Dimnames[[1]]
+          # Instead of Group Lasso:
+          # If any level of a dummy coded factor is selected, the whole factor is selected
+          if (any(is_fact_var)) {
+            nms_fac <- names(which(is_fact_var))
+            is_selected <- coefs[-1] != 0 # drop intercept
+            # model.matrix adds numbers to dummy coded factors which we need to get rid of
+            var_nms_sel <- gsub("[^::a-z::]", "", var_nms[-1][is_selected])
+            sel_fac <- nms_fac[nms_fac %in% var_nms_sel]
+            sel_numer <- var_nms_sel[!var_nms_sel %in% sel_fac]
+            all_sel_vars <- c(sel_fac, sel_numer)
+            whichVariable <- names(is_fact_var) %in% all_sel_vars
+          } else {
+            # metric variables only
+            whichVariable <- coefs[-1] != 0
+          }}
+      }  
+      if(is.null(whichVariable)){
+        whichVariable<-screen.cramersv_base(Y,X)
+        if(verbose==T){cat("Lasso failed and screening was based on Cramer's V\n")}}
+      if(verbose==T){cat("screened ",sum(whichVariable)," variables: ",paste(colnames(saveX)[whichVariable],sep=" "),"\n");
+        cat("sample size:",dim(X)[1],"; ")
+      }
+      end_time <- Sys.time()
+      if(verbose==T){cat("time:", round(difftime(end_time, start_time, units="mins"), digits=4), "mins \n")}
+      return(whichVariable)
+    }
+    assign("screen.glmnet_base", screen.glmnet_base, envir = .GlobalEnv)
+    
+    make.glmnet <- function(alpha=1, verbose=T, nfolds = 10, nlambda = 200){
+      
+      tuneGrid <- expand.grid(alpha=alpha, nfolds=nfolds, nlambda=nlambda)
+      
+      for (q in seq(nrow(tuneGrid))) {
+        eval(parse(text = paste0("screen.glmnet_", paste(tuneGrid[q, ],collapse="_"),
+                                 "<- function(..., alpha = ", tuneGrid[q, 1], ", verbose = ", verbose, ", nfolds =", tuneGrid[q, 2],
+                                 ", nlambda=", tuneGrid[q, 3], ")
+                         {screen.glmnet_base(..., alpha=alpha, verbose=verbose, nfolds=nfolds, nlambda=nlambda)}"
+        )), envir = .GlobalEnv)
+      }  
+    }
+    make.glmnet(verbose = FALSE);
+    
+    message("Note: SL.glmnet and screen.glmnet have been replaced by modified versions that accomodate non-binary data in the iterated conditional expectation step.\nSee the details section of the function's documentation for more on this.");
+  }  
+
+
   #### Modeling the outcome
+  if(Ymod == "SL" & is.null(V)) CV.details$VY = numeric(nlevels(as.factor(dat[,Avar]))*K*(K+1)/2);
+  u = 1;
   if(is.null(lookbackY)) lookbackY == Inf;
   St = matrix(NA, nrow = K, ncol = nlevels(as.factor(dat[, Avar]))); # Object that will contain the estimated survival curves
   ICt = array(0, dim = c(n, ncol = nlevels(as.factor(dat[, Avar])), K)); # Object that will contain the empirical efficient influence curve
@@ -635,10 +964,24 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
           }else{
             X = as.data.frame(model.matrix(as.formula(Qform), data = dat[dat[Cvar[[j]]] == 0 & dat[,Yvar[[j-1]]] == 0,])[,-1]);
           }
-          modQ = SuperLearner(Y = YSL, X = X, family = "binomial",
-                              SL.library = Y.SL.library, cvControl = list(V = V));
+          if(is.null(V)){ # Data-adaptive choice of VY
+            neff = min(5*sum(YSL), 5*sum(1 - YSL), length(YSL));
+            if(is.na(neff)) neff = 0;
+            VY = neff;
+            if(neff >= 30) VY = 20;
+            if(neff >= 500) VY = 10;
+            if(neff >= 5000) VY = 5;
+            if(neff >= 10000) VY = 2;
+            CV.details$VY[u] = VY;
+            u = u + 1;
+          }
+          if(neff > 0){ # There were both events and survivals
+            modQ = suppressWarnings(SuperLearner(Y = YSL, X = X, family = "binomial",
+                                                 SL.library = Y.SL.library, cvControl = list(V = VY)));
+          } else{ # Either all events or all survival
+            modQ = NULL;
+          }
 
-    
           ## Computing Qj
           if(j == 1){ # First time point
             newdat = dat;
@@ -646,10 +989,24 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
             newdat = dat[dat[,Cvar[[j-1]]] == 0,];
           }
           newdat[, Avar] = a;
-          if(j == 1){
-            Q[[j]][,ak] = predict(modQ, OnlySL = TRUE, newdata = newdat)$pred;
-          }else{
-            Q[[j]][dat[,Cvar[[j-1]]] == 0,ak] = predict(modQ, OnlySL = TRUE, newdata = newdat)$pred;
+          if(is.null(modQ)){ # either all events or all survival; prediction = only observed value
+            if(j == 1){
+              Q[[j]][,ak] = YSL[1];
+            }else{
+              Q[[j]][dat[,Cvar[[j-1]]] == 0,ak] = YSL[1];
+            }
+          } else{ # There were both events and survivals
+            if(j == 1){
+              suppressMessages({
+              attach(newdat); # Attaching and detaching seem to prevents some errors that happen with screeners
+              Q[[j]][,ak] = predict(modQ, OnlySL = TRUE, newdata = newdat)$pred;
+              detach(newdat);});
+            }else{
+              suppressMessages({
+              attach(newdat);
+              Q[[j]][dat[,Cvar[[j-1]]] == 0,ak] = predict(modQ, OnlySL = TRUE, newdata = newdat)$pred;
+              detach(newdat);});
+            }
           }
         }#End else-SL
 
@@ -663,17 +1020,21 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
         Hj[is.na(Hj)] = 0; # Hj = 0 if Cj = 0 or Y_{j-1} = 0
 
         ## Computing Qj-star
-        if(j==1){
-          epsilon = suppressWarnings(coef(glm(Qs[[j+1]][,ak] ~ 1 + offset(qlogis(Q[[j]][,ak])),
-                                              weights = Hj,
-                                              family = "binomial",
-                                              subset = dat[,Cvar[[j]]] == 0)));
+        if(!is.null(modQ)){
+          if(j==1){
+            epsilon = suppressWarnings(coef(glm(Qs[[j+1]][,ak] ~ 1 + offset(qlogis(Q[[j]][,ak])),
+                                                weights = Hj,
+                                                family = "binomial",
+                                                subset = dat[,Cvar[[j]]] == 0)));
+          }else{
+            epsilon = suppressWarnings(coef(glm(Qs[[j+1]][,ak] ~ 1 + offset(qlogis(Q[[j]][,ak])),
+                                                weights = Hj,
+                                                family = "binomial",
+                                                subset = dat[,Cvar[[j]]] == 0 & dat[,Yvar[[j-1]]] == 0)));
+  
+          }
         }else{
-          epsilon = suppressWarnings(coef(glm(Qs[[j+1]][,ak] ~ 1 + offset(qlogis(Q[[j]][,ak])),
-                                              weights = Hj,
-                                              family = "binomial",
-                                              subset = dat[,Cvar[[j]]] == 0 & dat[,Yvar[[j-1]]] == 0)));
-
+          epsilon = 0;
         }
         Qs[[j]][,ak] = plogis(qlogis(Q[[j]][,ak]) + epsilon);
         if(j != 1) Qs[[j]][dat[,Yvar[[j-1]]] == 1 & dat[,Cvar[[j-1]]] == 0, ak] = 1;
@@ -730,7 +1091,7 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
     ## Initializing some objects
     max.k = K*nlevels(as.factor(dat[,Avar]));
     lambda.t = w.t = numeric(max.k);
-    X.t = data.frame(matrix(, nrow = max.k, ncol = 2));
+    X.t = data.frame(matrix(NA, nrow = max.k, ncol = 2));
     k = 1;
     
     ## Building lambda, the weights, and the exposure and time matrix
@@ -799,9 +1160,11 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
   }
   if(!is.null(MSM.form)){
     invisible(list(St = results.St, MSM = results.lambda, vcov = Var.lambda,
-                   ATE = ATE, SE.ATE = SE.ATE, LL.ATE = LL.ATE, UL.ATE = UL.ATE));
+                   ATE = ATE, SE.ATE = SE.ATE, LL.ATE = LL.ATE, UL.ATE = UL.ATE,
+                   CV.details = CV.details));
   }else{
     invisible(list(St = results.St,
-                   ATE = ATE, SE.ATE = SE.ATE, LL.ATE = LL.ATE, UL.ATE = UL.ATE));
+                   ATE = ATE, SE.ATE = SE.ATE, LL.ATE = LL.ATE, UL.ATE = UL.ATE,
+                   CV.details = CV.details));
   }
 } # End of function

@@ -1,0 +1,6 @@
+2025-10-06 (v1.0.1): 
+- Corrected a use of the effective sample size ("neff") where it might not have been defined.
+- Corrected Example 3 (generated 12 time points, but tried to analyse 20)
+- Added a verification to ensure the names in MSM.form are correct
+- The function now outputs gA and gC
+- Added a 'gA' argument for supplying external treatment probabilities

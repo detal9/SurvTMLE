@@ -2,8 +2,8 @@
 #                                                          #
 #  Survival LTMLE with a time-fixed exposure and           #
 #  time-varying censoring                                  #
-#  V1.0.0                                                  #
-#  date: 2025-01-20                                        #
+#  V1.0.1                                                  #
+#  date: 2025-10-06                                        #
 #  Maintainer: Denis Talbot                                #
 #              denis.talbot@fmed.ulaval.ca                 #
 #                                                          #
@@ -32,22 +32,26 @@ require(SuperLearner);
 #### Arguments
 # dat:           A dataframe containing the data to be used. 
 #                The data must be supplied in a wide format (one row per individual).
+#
 # Yvar:          Either a character vector of the names of the Y variables or
 #                a numeric vector of the indices of the Y variables in dat.
 #                The Y variable must be coded 0/1, where 1 indicates that the event
 #                has occured. Once Y_t = 1 for a given subject, the data for times
 #                k > t are not used for that subject. The variables must be temporally
 #                ordered in Yvar.
+#
 # Cvar:          Either a character vector of the names of the C variables or
 #                a numeric vector of the indices of the C variables in dat.
 #                The C variable must be coded 0/1, where 1 indicates that the follow-up
 #                of the subject has been censored. Once C_t = 1 for a given subject,
 #                the data for times k > t are not used for that subject. The variables
 #                must be temporally ordered in Cvar.
+#
 # Avar:          Either the name of the exposure variable or its index in dat.
 #                The exposure can either be a binary or a categorical
 #                variable. Continuous exposures are not supported. If the exposure has more
 #                than two levels, it must be of type factor.
+#
 # Lvar:          Either a list of character vectors indicating the names of the time-varying
 #                L covariates measured at each time-point or a list of numeric vectors of the
 #                indices of the L covariates. The sets of variables (the elements of the list)
@@ -56,57 +60,77 @@ require(SuperLearner);
 #                at time 2, then Lvar = list(c(L11, L12), c(L21, L22, L23)). If there are only
 #                baseline covariates, it is possible to repeat the same covariates at all times
 #                with lookback = 1.
+#
 # L0var:         A character vector of time-fixed L variables measured at baseline or
 #                a numeric vector of the indices of the time-fixed L variables in dat (optional).
+#
 # lookback:      A numeric value indicating how far back in time should time-varying covariates
 #                be considered when modeling the outcome indicators (Y) and the censoring
 #                indicators (C). For example, if lookback = 2, Y_t and C_t will be modeled as
 #                a function of L_t and L_{t-1}. The default is NULL, indicating that all previous
 #                time-varying covariates should be used.
+#
 # lookbackY:     See description for lookback. LookbackY indicates the outcome-specific lookback.
 #                The default is to use the value provided in lookback.
+#
 # lookbackC:     See description for lookback. LookbackC indicates the censoring-specific lookback.
 #                The default is to use the value provided in lookback.
+#
 # Ymod:          The approach to be used to model the outcome indicators, either "parametric" or
 #                "SL" (Super Learner). The default is "parametric". 
 #                The choice "parametric" results in using logistic regressions.
+#
 # Cmod:          The approach to be used to model the censoring indicators, either "parametric" or
 #                "SL" (Super Learner). The default is "parametric".
 #                The choice "parametric" results in using logistic regressions.
+#
 # Amod:          The approach to be used to model the exposure, either "parametric" or
 #                "SL" (Super Learner). The default is "parametric".
 #                The choice "parametric" results in using a logistic regression if the exposure
 #                is binary and a multinomial regression otherwise. 
 #                If the exposure is categorical (>2 levels), Amod = "SL" results in using a
 #                polychotomous regression and classification.
+#
 # SL.library:    A character vector or a list of character vectors indicating the learners and screeners
 #                to be used within the Super Learner.
 #                The default is c("SL.glm", "SL.glm.interaction"); The list of all default
 #                learners can be viewed with listWrappers(); 
+#
 # Y.SL.library:  A character vector indicating the learners to be used within the Super Learner
 #                for modeling the outcome. The default is the same as SL.library.
+#
 # C.SL.library:  A character vector indicating the learners to be used within the Super Learner
 #                for modeling the outcome. The default is the same as SL.library.
+#
 # A.SL.library:  A character vector indicating the learners to be used within the Super Learner
 #                for modeling the exposure. The default is the same as SL.library if A is binary.
 #                If A is multilevel (>2 levels) then this option is ignored and
 #                polychotomous regression and classification is used.
+#
 # gbound:        Bound for the g estimates (A and C). 
 #                For exposure A, all predicted probabilities < gbound or > 1 - gbound
 #                are truncated. For censoring C, only predicted probabilities 
 #                P(C = 0|A, L) < gbound are truncated. Defaults is 0.005.
+#
 # V:             Number of folds for the cross-validation when using the Super Learner. 
 #                Default is adapted as a function of effective sample size in each model.
 #                See 'Phillips, R. V., van der Laan, M. J., Lee, H., & Gruber, S. (2023).
 #                Practical considerations for specifying a super learner.
 #                International Journal of Epidemiology, 52(4), 1276-1285.' for details
+#
 # MSM.form:      The right hand side of a formula for the MSM relating the hazards 
 #                to the exposure and time (optional).
 #                The formula can only involve terms for the exposure (with the same name
 #                as in dat) and "time", which is coded as time = 1, ..., K. 
 #                If the name of Avar in dat is "trt" some examples are ~ trt + time,
 #                ~ trt + as.factor(time) or trt + time + trt*time.
+#
 # Print:         TRUE or FALSE, whether the function should print the main results (default = TRUE)
+#
+# gA:            Optional argument for supplying external treatment probabilities. 
+#                If A is binary gA must be a vector of P(A = 1|L0, Lvar[[1]]).
+#                If A is categorical gA must be a matrix with column j being P(A = j|L0, Lvar[[1]]).
+#                Default is NULL, meaning that gA is estimated within the function
 
 
 #### Value
@@ -124,6 +148,13 @@ require(SuperLearner);
 # CV.details:    Number of cross-validation folds that were effectively used if SuperLearner was used.
 #                VA for modeling the treatment probability, VC for modeling the censoring probabilities
 #                VY for modeling the outcome probabilities.
+# gA:            The predicted treatment probabilities. If A is binary gA is a vector of
+#                P(A = 1|L0, Lvar[[1]]). If A is categorical gA is a matrix with column j being
+#                P(A = j|L0, Lvar[[1]]);
+# gC:            The predicted censoring probabilities. gC is a list of length K, where each element
+#                is a vector of length = n with P(C_t = 0 | C_{t-1} = 0, A, L_t, Y_{t-1} = 0).
+#                NAs are inserted where C_{t-1} = 1 or Y_{t-1} = 1.
+
 
 
 #### Details
@@ -144,7 +175,7 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
                      SL.library = c("SL.glm", "SL.glm.interaction"),
                      Y.SL.library = SL.library, C.SL.library = SL.library,
                      A.SL.library = SL.library, gbound = 0.025, V = NULL,
-                     MSM.form = NULL, Print = TRUE){
+                     MSM.form = NULL, Print = TRUE, gA = NULL){
 
   ### Sample size (n) and number of time points (K)
   n = nrow(dat);
@@ -351,6 +382,10 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
   ## Verification for MSM.form
   if(!is.null(MSM.form)){
     if(!inherits(MSM.form, "formula")) stop("When supplied, MSM.form must be a formula");
+    if(any(!(all.vars(MSM.form) %in% c("time", Avar)))){
+      stop("The formula for MSM.form includes variable names other than the name of the exposure
+            and time");
+    }
   }
 
   ## Verification of Print
@@ -388,80 +423,97 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
        is.na(dat[, unlist(Lvar[[j]])]))) stop("dat contains missing data for at least one of the variables to be used.\nMissing data are not currently allowed. You may consider performing multiple imputations.");
   }
   
+  ### Verification for gA
+  if(!is.null(gA)){
+    if(!is.numeric(gA)) stop("gA must contain numeric values only");
+    if(anyNA(gA)) stop("gA must not contain missing values");
+    if(length(table(dat[,Avar])) == 2){ # A is binary
+      if(length(gA) != n) stop("When Avar is binary, gA must be of length n");
+    } else{ # A is categorical
+      if(!is.matrix(gA)) stop("When Avar is categorical, gA must be a matrix");
+      if(ncol(gA) != length(table(dat[,Avar]))) stop("Then number of columns of gA does not 
+                                                     correspond with the number of levels of Avar");
+      if(nrow(gA) != n) stop("The number of rows of gA is not equal to the sample size n");
+    }
+    if(max(gA) >= 1 | min(gA) <= 0) stop("gA values must be greater than 0 and lower than 1");
+  }
+  
   
   #### Modeling the exposure
-  if(nlevels(as.factor(dat[,Avar])) == 2){ # A is binary
-    if(is.null(L0var)){ # No time-fixed covariates
-      Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ ",
-                    paste(names(dat[, Lvar[[1]], drop = FALSE]), collapse = " + "), sep = "");
-    }else{ # Some time-fixed covariates
-      Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ ",
-                    paste(names(dat[, L0var, drop = FALSE]),
-                          names(dat[, Lvar[[1]], drop = FALSE]), collapse = " + ", sep = " + "), sep = "");
-    }
-    if(Amod == "parametric"){
-      gA = glm(Aform, data = dat, family = "binomial", maxit = 500)$fitted;
-    }else{ #Amod == "SL"
-      if(is.null(V)){ # Data-adaptive choice of VA
-        neff = min(5*sum(dat[, Avar]),5*sum(1 - dat[, Avar]), n);
-        VA = neff;
-        if(neff >= 30) VA = 20;
-        if(neff >= 500) VA = 10;
-        if(neff >= 5000) VA = 5;
-        if(neff >= 10000) VA = 2;
-        CV.details$VA = VA;
-      }
-      X = as.data.frame(model.matrix(as.formula(Aform), data = dat)[,-1]); # Obtain a matrix to accommodate factors
-      names(X) = paste0("X", 1:ncol(X));
-      mod.A = SuperLearner(Y = dat[, Avar], X = X, family = "binomial",
-                           SL.library = A.SL.library, cvControl = list(V = VA));
-      gA = predict(mod.A, OnlySL = TRUE)$pred; 
-    } 
-    gA = pmax(pmin(gA, gbounds[2]), gbounds[1]); # Bounding gA
-  }else{ # A is categorical
-    nlevel = nlevels(dat[, Avar]); # Number of levels of A
-    levelA = levels(dat[, Avar]); # Levels of A
-    if(Amod == "parametric"){
-      dat$id = 1:n;
-      Avarname = names(dat[,Avar, drop = FALSE]);
-      ds = mlogit.data(data = dat, shape = "wide", choice = Avarname, varying = NULL, idvar = id);
-      if(is.null(L0var)){ # No time-fixed covariates
-        Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ 1 | ",
-                      paste(names(dat[, Lvar[[1]], drop = FALSE]), collapse = " + "), sep = "");
-      }else{ # Some time-fixed covariates
-        Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ 1 | ",
-                      paste(names(dat[, L0var, drop = FALSE]),
-                            names(dat[, Lvar[[1]], drop = FALSE]), sep = " + ", collapse = " + "), sep = "");
-      }
-      Aform = as.formula(Aform);      
-      mod.A = mlogit(Aform, data = ds);
-      gA = predict(mod.A, type = "probs", newdata = ds[order(ds$id),]);
-      Indicator = matrix(NA, nrow = n, ncol = nlevel); # Indicator matrix I(A = a)
-      for(i in 1:nlevel){
-        Indicator[,i] = (dat[, Avar] == levelA[i]);
-      }
-      gA = c(as.matrix(gA)); # Vector form of gA;
-      gA = pmin(gA, gbounds[2]); gA = pmax(gA, gbounds[1]); # Bounding gA
-      gA = matrix(gA, ncol = nlevel, nrow = n);
-    }else{ #Amod == "SL"
+  if(is.null(gA)){
+    if(nlevels(as.factor(dat[,Avar])) == 2){ # A is binary
       if(is.null(L0var)){ # No time-fixed covariates
         Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ ",
                       paste(names(dat[, Lvar[[1]], drop = FALSE]), collapse = " + "), sep = "");
       }else{ # Some time-fixed covariates
         Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ ",
                       paste(names(dat[, L0var, drop = FALSE]),
-                            names(dat[, Lvar[[1]], drop = FALSE]), sep = " + ", collapse = " + "), sep = "");
+                            names(dat[, Lvar[[1]], drop = FALSE]), collapse = " + ", sep = " + "), sep = "");
       }
-      X = model.matrix(as.formula(Aform), data = dat)[,-1]; # Obtain a matrix to accomodate factors
-      names(X) = paste0("X", 1:ncol(X));
-      mod.A = polyclass(dat[,Avar], X);
-      gA = matrix(NA, nrow = n, ncol = nlevel); 
-      for(i in 1:nlevel){ # Classes are ordered the same as the levels of A
-        gA[,i] = ppolyclass(i, X, mod.A);
+      if(Amod == "parametric"){
+        gA = glm(Aform, data = dat, family = "binomial", maxit = 500)$fitted;
+      }else{ #Amod == "SL"
+        if(is.null(V)){ # Data-adaptive choice of VA
+          neff = min(5*sum(dat[, Avar]),5*sum(1 - dat[, Avar]), n);
+          VA = neff;
+          if(neff >= 30) VA = 20;
+          if(neff >= 500) VA = 10;
+          if(neff >= 5000) VA = 5;
+          if(neff >= 10000) VA = 2;
+          CV.details$VA = VA;
+        }
+        X = as.data.frame(model.matrix(as.formula(Aform), data = dat)[,-1]); # Obtain a matrix to accommodate factors
+        names(X) = paste0("X", 1:ncol(X));
+        mod.A = SuperLearner(Y = dat[, Avar], X = X, family = "binomial",
+                             SL.library = A.SL.library, cvControl = list(V = VA));
+        gA = predict(mod.A, OnlySL = TRUE)$pred; 
       } 
-      gA = c(as.matrix(gA)); # Vector form of gA;
-      gA = pmin(gA, gbounds[2]); gA = pmax(gA, gbounds[1]); # Bounding gA
-      gA = matrix(gA, ncol = nlevel, nrow = n);
+      gA = pmax(pmin(gA, gbounds[2]), gbounds[1]); # Bounding gA
+    }else{ # A is categorical
+      nlevel = nlevels(dat[, Avar]); # Number of levels of A
+      levelA = levels(dat[, Avar]); # Levels of A
+      if(Amod == "parametric"){
+        dat$id = 1:n;
+        Avarname = names(dat[,Avar, drop = FALSE]);
+        ds = mlogit.data(data = dat, shape = "wide", choice = Avarname, varying = NULL, idvar = id);
+        if(is.null(L0var)){ # No time-fixed covariates
+          Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ 1 | ",
+                        paste(names(dat[, Lvar[[1]], drop = FALSE]), collapse = " + "), sep = "");
+        }else{ # Some time-fixed covariates
+          Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ 1 | ",
+                        paste(names(dat[, L0var, drop = FALSE]),
+                              names(dat[, Lvar[[1]], drop = FALSE]), sep = " + ", collapse = " + "), sep = "");
+        }
+        Aform = as.formula(Aform);      
+        mod.A = mlogit(Aform, data = ds);
+        gA = predict(mod.A, type = "probs", newdata = ds[order(ds$id),]);
+        Indicator = matrix(NA, nrow = n, ncol = nlevel); # Indicator matrix I(A = a)
+        for(i in 1:nlevel){
+          Indicator[,i] = (dat[, Avar] == levelA[i]);
+        }
+        gA = c(as.matrix(gA)); # Vector form of gA;
+        gA = pmin(gA, gbounds[2]); gA = pmax(gA, gbounds[1]); # Bounding gA
+        gA = matrix(gA, ncol = nlevel, nrow = n);
+      }else{ #Amod == "SL"
+        if(is.null(L0var)){ # No time-fixed covariates
+          Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ ",
+                        paste(names(dat[, Lvar[[1]], drop = FALSE]), collapse = " + "), sep = "");
+        }else{ # Some time-fixed covariates
+          Aform = paste(names(dat[,Avar, drop = FALSE]), " ~ ",
+                        paste(names(dat[, L0var, drop = FALSE]),
+                              names(dat[, Lvar[[1]], drop = FALSE]), sep = " + ", collapse = " + "), sep = "");
+        }
+        X = model.matrix(as.formula(Aform), data = dat)[,-1]; # Obtain a matrix to accomodate factors
+        names(X) = paste0("X", 1:ncol(X));
+        mod.A = polyclass(dat[,Avar], X);
+        gA = matrix(NA, nrow = n, ncol = nlevel); 
+        for(i in 1:nlevel){ # Classes are ordered the same as the levels of A
+          gA[,i] = ppolyclass(i, X, mod.A);
+        } 
+        gA = c(as.matrix(gA)); # Vector form of gA;
+        gA = pmin(gA, gbounds[2]); gA = pmax(gA, gbounds[1]); # Bounding gA
+        gA = matrix(gA, ncol = nlevel, nrow = n);
+      }
     }
   }
   ## Note :
@@ -975,7 +1027,7 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
             CV.details$VY[u] = VY;
             u = u + 1;
           }
-          if(neff > 0){ # There were both events and survivals
+          if(min(5*sum(YSL), 5*sum(1 - YSL), length(YSL)) > 0){ # There were both events and survivals
             modQ = suppressWarnings(SuperLearner(Y = YSL, X = X, family = "binomial",
                                                  SL.library = Y.SL.library, cvControl = list(V = VY)));
           } else{ # Either all events or all survival
@@ -1165,6 +1217,6 @@ surv.TMLE = function(dat, Yvar, Cvar, Avar, Lvar, L0var = NULL,
   }else{
     invisible(list(St = results.St,
                    ATE = ATE, SE.ATE = SE.ATE, LL.ATE = LL.ATE, UL.ATE = UL.ATE,
-                   CV.details = CV.details));
+                   CV.details = CV.details, gA = gA, gC = gC));
   }
 } # End of function

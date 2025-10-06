@@ -1,7 +1,7 @@
 # install.packages("mlogit");
 # install.packages("SuperLearner");
 # install.packages("polspline");
-source("...\survTMLE_v0_4.R");
+source("...\survTMLE.R");
 
 
 ######## Example 1 - Single baseline binary covariate 
@@ -290,24 +290,25 @@ dat = generateData3(n, ntime = 12);
 
 # With Super Learner
 results = surv.TMLE(dat = dat,
-                    Yvar = c("Y1", "Y2", "Y3", "Y4", "Y5", "Y6", "Y7", "Y8", "Y9", "Y10", "Y11", "Y12", "Y13", "Y14", "Y15", "Y16", "Y17", "Y18", "Y19", "Y20"),
+                    Yvar = c("Y1", "Y2", "Y3", "Y4", "Y5", "Y6", "Y7", "Y8", "Y9", "Y10", "Y11", "Y12"),
                     Cvar = c("Censor1", "Censor2", "Censor3", "Censor4", "Censor5", "Censor6", "Censor7", "Censor8", "Censor9", "Censor10",
-                             "Censor11", "Censor12", "Censor13", "Censor14", "Censor15", "Censor16", "Censor17", "Censor18", "Censor19", "Censor20"),
+                             "Censor11", "Censor12"),
                     Avar = "A",
-                    Lvar = list("L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13", "L14", "L15", "L16", "L17", "L18", "L19", "L20"),
+                    Lvar = list("L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12"),
                     L0var = "L",
                     lookback = 2,
                     Ymod = "SL", Cmod = "SL", Amod = "SL",
                     SL.library = c("SL.glm", "SL.gam", "SL.earth"),
                     gbound = 0.005, V = 5, MSM.form = ~A+time, Print = FALSE);
 
+
 # With parametric models
 results = surv.TMLE(dat = dat,
-                    Yvar = c("Y1", "Y2", "Y3", "Y4", "Y5", "Y6", "Y7", "Y8", "Y9", "Y10", "Y11", "Y12", "Y13", "Y14", "Y15", "Y16", "Y17", "Y18", "Y19", "Y20"),
+                    Yvar = c("Y1", "Y2", "Y3", "Y4", "Y5", "Y6", "Y7", "Y8", "Y9", "Y10", "Y11", "Y12"),
                     Cvar = c("Censor1", "Censor2", "Censor3", "Censor4", "Censor5", "Censor6", "Censor7", "Censor8", "Censor9", "Censor10",
-                             "Censor11", "Censor12", "Censor13", "Censor14", "Censor15", "Censor16", "Censor17", "Censor18", "Censor19", "Censor20"),
+                             "Censor11", "Censor12"),
                     Avar = "A",
-                    Lvar = list("L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13", "L14", "L15", "L16", "L17", "L18", "L19", "L20"),
+                    Lvar = list("L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12"),
                     L0var = "L",
                     lookback = 2,
                     Ymod = "parametric", Cmod = "parametric", Amod = "parametric",

@@ -9,3 +9,4 @@ The files included are:
 - Examples.R contains a few examples of usage of the survTMLE function based on simulated data.
 - TutorialBoxes.R contains the complete R code for a "handmade" implementation of TMLE, as presented in the boxes of our associated tutorial.
 - ComparisonLTMLE.R uses both the ltmle package and survTMLE in Example 1, illustrating some similarities and differences
+- Change_Log describes the changes to other files between versions
